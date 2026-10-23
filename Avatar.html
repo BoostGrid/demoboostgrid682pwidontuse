@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avatar sketch</title>
+<style>
+:root{--bg:#f4f3ef;--fill:#ffffff;--ink:#1f2328;--tie:#4a6fb5;--clip:#c9ced6;--stripe:#d6e0f3}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--fill:#26251f;--ink:#e9e7df;--tie:#4a6fb5;--clip:#8b8981;--stripe:#d6e0f3}}
+*{box-sizing:border-box;margin:0}
+body{min-height:100vh;display:grid;place-items:center;background:var(--bg);padding:24px}
+.avatar{width:min(380px,100%);height:auto;display:block}
+.fill{fill:var(--fill)}
+.ink{stroke:var(--ink);stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.line{fill:none}
+.hatch{fill:none;stroke:var(--ink);stroke-width:1.5;stroke-linecap:round;opacity:.45}
+</style>
+</head>
+<body>
+<svg class="avatar" viewBox="0 0 380 420" role="img" aria-label="Flat sketch avatar with collar, tie and tie clip">
+  <path class="fill" d="M 4 410 C 8 330 40 285 110 262 C 140 253 165 249 190 248 C 215 249 240 253 270 262 C 340 285 372 330 376 410 Z"/>
+  <path class="line ink" d="M 4 410 C 8 330 40 285 110 262 C 140 253 165 249 190 248 C 215 249 240 253 270 262 C 340 285 372 330 376 410"/>
+  <path class="fill ink" d="M 150 226 L 150 262 Q 190 290 230 262 L 230 226"/>
+  <path class="hatch" d="M 218 238 L 227 231 M 216 252 L 227 244"/>
+  <path class="line ink" d="M 174 296 L 172 412 M 206 296 L 208 412"/>
+  <path class="ink" fill="var(--tie)" d="M 182 312 L 198 312 L 214 390 L 190 404 L 166 390 Z"/>
+  <path class="ink" fill="var(--tie)" d="M 177 288 L 203 288 L 198 312 L 182 312 Z"/>
+  <path d="M 178 332 L 202 322 M 174 374 L 206 364 M 171 390 L 207 380" fill="none" stroke="var(--stripe)" stroke-width="2" stroke-linecap="round"/>
+  <rect class="ink" x="170" y="342" width="40" height="9" rx="3" fill="var(--clip)" stroke-width="2.5"/>
+  <path class="fill ink" d="M 134 224 L 174 296 L 150 326 L 112 262 Z"/>
+  <path class="fill ink" d="M 246 224 L 206 296 L 230 326 L 268 262 Z"/>
+  <circle class="fill ink" cx="190" cy="130" r="105"/>
+  <path class="hatch" d="M 100 170 A 100 100 0 0 0 160 228"/>
+  <path class="hatch" d="M 232 214 L 252 196 M 246 222 L 270 200 M 262 224 L 282 206 M 280 296 L 314 278 M 300 308 L 340 286 M 322 322 L 356 304"/>
+</svg>
+</body>
+</html>

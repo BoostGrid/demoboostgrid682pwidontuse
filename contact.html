@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Support Chat — BoostGrid</title>
+<link rel="stylesheet" href="css/theme.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+
+<header>
+  <div class="left">
+    <button id="backBtn" type="button" aria-label="Back"><i class="fa-solid fa-arrow-left"></i></button>
+    <div>
+      <h1>Support Chat</h1>
+      <p>Message the BoostGrid team directly</p>
+    </div>
+  </div>
+  <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle dark mode"><span class="knob"><svg id="themeIcon" viewBox="0 0 24 24"></svg></span></button>
+</header>
+
+<main>
+  <div class="chat-messages" id="chatMessages"><p class="chat-empty">Loading…</p></div>
+
+  <div class="chat-input-area">
+    <div class="chat-attachment-preview" id="chatAttachmentPreview">
+      <img id="chatAttachmentThumb" alt="">
+      <span id="chatAttachmentName"></span>
+      <button type="button" id="chatAttachmentRemove" aria-label="Remove attachment">&times;</button>
+    </div>
+    <form class="chat-input-row" id="chatForm">
+      <button type="button" id="attachBtn" aria-label="Attach a screenshot"><i class="fa-solid fa-paperclip"></i></button>
+      <input type="file" id="chatFileInput" accept="image/*" style="display:none;">
+      <input type="text" id="chatInput" placeholder="Type a message…" maxlength="2000">
+      <button type="submit" id="chatSendBtn">Send</button>
+    </form>
+    <div class="chat-send-error" id="chatSendError"></div>
+  </div>
+</main>
+
+<div id="imageViewerOverlay">
+  <img id="imageViewerImg" src="" alt="">
+</div>
+
+<script type="module">
+import { db, collection, query, where, orderBy, onSnapshot } from "./lib/firestore-compat.js";
+import {
+  requireSession, sendSupportMessage, uploadToStorage, hydrateProtectedMedia, Permission, Role,
+  databases, DATABASE_ID, COLLECTIONS
+} from "./lib/appwrite-config.js";
+
+(function () {
+    var SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+    var MOON = '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+    var btn = document.getElementById("themeToggle"), icon = document.getElementById("themeIcon");
+    function applyTheme(dark) {
+      document.body.classList.toggle("dark", dark);
+      icon.innerHTML = dark ? SUN : MOON;
+    }
+    var saved = null;
+    try { saved = localStorage.getItem("sh-theme") || localStorage.getItem("theme"); } catch (e) {}
+    applyTheme(saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches);
+    btn.addEventListener("click", function () {
+      var dark = !document.body.classList.contains("dark");
+      applyTheme(dark);
+      try { localStorage.setItem("sh-theme", dark ? "dark" : "light"); localStorage.setItem("theme", dark ? "dark" : "light"); } catch (e) {}
+    });
+  })();
+
+/* Back navigation */
+// dashboards link here with ?from=<page>, so one shared page can send the person back to where they came from
+const params = new URLSearchParams(window.location.search);
+const fromPage = params.get("from");
+const ALLOWED_RETURN_PAGES = new Set(["client-page.html", "earner-page.html", "admin-page.html", "platform-dashboard.html"]);
+const backTarget = ALLOWED_RETURN_PAGES.has(fromPage) ? fromPage : "1page.html";
+document.getElementById("backBtn").addEventListener("click", () => {
+  window.location.href = backTarget;
+});
+
+/* Image viewer */
+const imageViewerOverlay = document.getElementById("imageViewerOverlay");
+const imageViewerImg = document.getElementById("imageViewerImg");
+function openImageViewer(src) {
+  imageViewerImg.src = src;
+  imageViewerOverlay.classList.add("active");
+}
+imageViewerOverlay.addEventListener("click", () => {
+  imageViewerOverlay.classList.remove("active");
+  imageViewerImg.src = "";
+});
+
+/* Chat */
+function escapeChatHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function renderChatMessages(messages) {
+  const list = document.getElementById("chatMessages");
+  if (!messages.length) {
+    list.innerHTML = `<p class="chat-empty">No messages yet — send one below and the BoostGrid team will get back to you here.</p>`;
+  } else {
+    list.innerHTML = messages.map(m => `
+      <div class="chat-bubble ${m.senderRole === "owner" ? "from-owner" : "from-me"}">
+        ${m.attachmentUrl ? `<img class="chat-bubble-img" data-protected-src="${m.attachmentUrl}" alt="Attachment">` : ""}
+        ${m.message ? `<div class="chat-bubble-text">${escapeChatHtml(m.message)}</div>` : ""}
+        <div class="chat-bubble-time">${new Date(m.createdAt).toLocaleString([], {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"})}</div>
+      </div>
+    `).join("");
+    list.querySelectorAll(".chat-bubble-img").forEach(img => {
+      img.addEventListener("click", () => { if (img.getAttribute("src")) openImageViewer(img.src); });
+      // The picture arrives after the bubble is drawn, so keep the newest message in view.
+      img.addEventListener("load", () => { list.scrollTop = list.scrollHeight; });
+    });
+    hydrateProtectedMedia(list);
+  }
+  list.scrollTop = list.scrollHeight;
+
+  messages
+    .filter(m => m.senderRole === "owner" && m.read === false)
+    .forEach(m => {
+      databases.updateDocument(DATABASE_ID, COLLECTIONS.SUPPORT_MESSAGES, m.$id, { read: true }).catch(() => {});
+    });
+}
+
+/* Attachment picker */
+const chatFileInput = document.getElementById("chatFileInput");
+const attachBtn = document.getElementById("attachBtn");
+const attachmentPreview = document.getElementById("chatAttachmentPreview");
+const attachmentThumb = document.getElementById("chatAttachmentThumb");
+const attachmentName = document.getElementById("chatAttachmentName");
+const chatSendError = document.getElementById("chatSendError");
+let selectedAttachment = null; // { file, previewUrl } or null
+
+attachBtn.addEventListener("click", () => chatFileInput.click());
+
+chatFileInput.addEventListener("change", () => {
+  const file = chatFileInput.files[0];
+  chatFileInput.value = "";
+  if (!file) return;
+  chatSendError.textContent = "";
+  if (selectedAttachment) URL.revokeObjectURL(selectedAttachment.previewUrl);
+  const previewUrl = URL.createObjectURL(file);
+  selectedAttachment = { file, previewUrl };
+  attachmentThumb.src = previewUrl;
+  attachmentName.textContent = file.name;
+  attachmentPreview.classList.add("active");
+});
+
+document.getElementById("chatAttachmentRemove").addEventListener("click", () => {
+  if (selectedAttachment) URL.revokeObjectURL(selectedAttachment.previewUrl);
+  selectedAttachment = null;
+  attachmentPreview.classList.remove("active");
+});
+
+/* Auth + subscribe + send */
+let unsubscribeChat = null;
+
+(async () => {
+  const user = await requireSession(`login.html?redirect=${encodeURIComponent(location.pathname + location.search)}`);
+  if (!user) return;
+  const userId = user.$id;
+
+  unsubscribeChat = onSnapshot(
+    query(collection(db, COLLECTIONS.SUPPORT_MESSAGES), where("userId", "==", userId), orderBy("createdAt", "asc")),
+    (snap) => {
+      const messages = [];
+      snap.forEach(docSnap => messages.push({ $id: docSnap.id, ...docSnap.data() }));
+      renderChatMessages(messages);
+    }
+  );
+
+  const chatForm = document.getElementById("chatForm");
+  const chatInput = document.getElementById("chatInput");
+  const chatSendBtn = document.getElementById("chatSendBtn");
+
+  chatForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = chatInput.value.trim();
+    if (!text && !selectedAttachment) return;
+
+    chatSendBtn.disabled = true;
+    chatSendError.textContent = "";
+
+    try {
+      let attachmentUrl = "";
+      if (selectedAttachment) {
+        attachmentUrl = await uploadToStorage(selectedAttachment.file, [
+          Permission.read(Role.user(userId)),
+          Permission.read(Role.team("team_owner")),
+        ], { requireTeamGrant: true });
+      }
+      await sendSupportMessage(userId, "user", text, attachmentUrl);
+      chatInput.value = "";
+      if (selectedAttachment) {
+        URL.revokeObjectURL(selectedAttachment.previewUrl);
+        selectedAttachment = null;
+        attachmentPreview.classList.remove("active");
+      }
+    } catch (err) {
+      chatSendError.textContent = err.message || "Failed to send message. Please try again.";
+    } finally {
+      chatSendBtn.disabled = false;
+    }
+  });
+})();
+
+window.addEventListener("beforeunload", () => {
+  if (unsubscribeChat) unsubscribeChat();
+});
+</script>
+</body>
+</html>
